@@ -564,6 +564,7 @@ final_columns.extend(['L5_GAMES_PLAYED', 'GAMES_LAST_7D', 'LIMITED_SAMPLE', 'RET
 df_player_final = df_logs[final_columns].copy()
 df_player_final = df_player_final.sort_values(by='GAME_DATE', ascending=False)
 df_player_final['GAME_DATE'] = df_player_final['GAME_DATE'].dt.strftime('%Y-%m-%d')
+df_player_upload = df_player_final.copy()
 
 # --- 4.5 ACTIVE TONIGHT FILTER ---
 print("Fetching tonight's schedule...")
@@ -1719,7 +1720,7 @@ def append_upload(sheet_name, df):
     except Exception as e:
         print(f"❌ FAILED append '{sheet_name}': {e}")
 
-safe_upload('Player_Stats', df_player_final)
+safe_upload('Player_Stats', df_player_upload)
 safe_upload('Team_Advanced', df_team_final)
 safe_upload('Tonights_Opponent', df_tonight_sheet)
 safe_upload('Teammate_Correlations', df_correlation)
