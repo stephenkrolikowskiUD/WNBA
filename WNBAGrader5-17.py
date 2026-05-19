@@ -40,6 +40,7 @@ SHEET_ID = os.environ.get('WNBA_SHEET_ID', '1mv_4oNUP8nX418sUulo-Ect3qSQLL1zGzW3
 SNAPSHOT_DATE = datetime.now(pytz.timezone('US/Eastern')).strftime('%Y-%m-%d')
 sh = gc.open_by_key(SHEET_ID) if SHEET_ID else gc.open(SHEET_NAME)
 print(f"✅ Connected to Google Sheet: {SHEET_ID or SHEET_NAME}")
+RETRY_DNP_LOOKBACK_DAYS = 7
 
 # --- 2. LOAD DAILY_PICKS ---
 print("\nLoading Daily_Picks...")
@@ -166,14 +167,17 @@ def print_clv_summary(df_all):
 
 # --- 3. FIND UNGRADED PICKS ---
 hit_series = df_picks['HIT'].fillna('').astype(str).str.strip()
-ungraded = df_picks[hit_series == ''].copy()
+today_str = datetime.now(pytz.timezone('US/Eastern')).strftime('%Y-%m-%d')
+date_series = pd.to_datetime(df_picks['DATE'], errors='coerce')
+retry_cutoff = pd.to_datetime(today_str) - pd.Timedelta(days=RETRY_DNP_LOOKBACK_DAYS)
+retry_dnp_mask = (hit_series == 'DNP') & date_series.notna() & (date_series >= retry_cutoff) & (date_series < pd.to_datetime(today_str))
+ungraded = df_picks[(hit_series == '') | retry_dnp_mask].copy()
 
 if ungraded.empty:
     print("✅ All picks are already graded! Nothing to do.")
     dates_to_grade = []
 
 # Only grade picks from completed dates (not today)
-today_str = datetime.now(pytz.timezone('US/Eastern')).strftime('%Y-%m-%d')
 ungraded = ungraded[ungraded['DATE'] < today_str]
 
 if ungraded.empty:
@@ -181,7 +185,11 @@ if ungraded.empty:
     dates_to_grade = []
 else:
     dates_to_grade = sorted(ungraded['DATE'].unique())
-    print(f"🎯 {len(ungraded)} ungraded picks from: {', '.join(dates_to_grade)}")
+    retry_ct = int(retry_dnp_mask.sum())
+    if retry_ct > 0:
+        print(f"🎯 {len(ungraded)} gradeable picks from: {', '.join(dates_to_grade)} ({retry_ct} recent DNP retries)")
+    else:
+        print(f"🎯 {len(ungraded)} gradeable picks from: {', '.join(dates_to_grade)}")
 
 # --- 4. FETCH BOX SCORES ---
 print("\nFetching box score data...")
@@ -223,7 +231,7 @@ if grade_dates_missing or not box_lookup:
     season = current_wnba_season()
     print(f"   Using WNBA season: {season}")
     df_logs = pd.DataFrame()
-    for season_type in ['Regular Season', 'Commissioners Cup', 'Playoffs']:
+    for season_type in ['Regular Season', 'Playoffs']:
         try:
             log = leaguegamelog.LeagueGameLog(
                 player_or_team_abbreviation='P',
@@ -334,11 +342,15 @@ for idx, pick in ungraded.iterrows():
 
     line_val = safe_float(line)
     box = find_box_score(box_lookup, player, date)
+    date_has_logs = date in box_date_set
 
     # Row in the sheet (1-indexed, +1 for header)
     sheet_row = int(idx) + 2  # idx is 0-based from data rows, +1 for header, +1 for 1-index
 
     if box is None:
+        if not date_has_logs:
+            print(f"   ⏳ {player} ({date}) — logs for this date are not available yet; leaving ungraded for retry")
+            continue
         # Player didn't play (DNP, injury, etc.)
         updates.append({'range': f'{col_letter(actual_col)}{sheet_row}', 'value': 'DNP'})
         updates.append({'range': f'{col_letter(hit_col)}{sheet_row}', 'value': 'DNP'})
