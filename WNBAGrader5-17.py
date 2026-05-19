@@ -81,6 +81,22 @@ def current_wnba_season(now=None):
     season_year = now.year if now.month >= 5 else now.year - 1
     return str(season_year)
 
+def normalize_pick_date(val):
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+        return s
+    for fmt in ('%m/%d/%Y', '%m/%d/%y', '%Y/%m/%d'):
+        try:
+            return datetime.strptime(s, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+    try:
+        return pd.to_datetime(s).strftime('%Y-%m-%d')
+    except Exception:
+        return s
+
 def normalize_person_name(name):
     text = unicodedata.normalize('NFKD', str(name or ''))
     text = ''.join(ch for ch in text if not unicodedata.combining(ch))
@@ -97,6 +113,9 @@ def find_box_score(box_lookup, player, date):
     for (bn, bd), bv in box_lookup.items():
         if bd == date and normalize_person_name(bn) == player_norm:
             return bv
+    available = [bn for (bn, bd) in box_lookup.keys() if bd == date]
+    if available:
+        print(f"   ⚠️ No match for '{player}' on {date}. Sample available: {available[:5]}")
     return None
 
 def grade_pick(actual, line_val, lean):
@@ -169,16 +188,15 @@ def print_clv_summary(df_all):
 hit_series = df_picks['HIT'].fillna('').astype(str).str.strip()
 today_str = datetime.now(pytz.timezone('US/Eastern')).strftime('%Y-%m-%d')
 date_series = pd.to_datetime(df_picks['DATE'], errors='coerce')
-retry_cutoff = pd.to_datetime(today_str) - pd.Timedelta(days=RETRY_DNP_LOOKBACK_DAYS)
-retry_dnp_mask = (hit_series == 'DNP') & date_series.notna() & (date_series >= retry_cutoff) & (date_series < pd.to_datetime(today_str))
-ungraded = df_picks[(hit_series == '') | retry_dnp_mask].copy()
+today_ts = pd.to_datetime(today_str)
+retry_cutoff = today_ts - pd.Timedelta(days=RETRY_DNP_LOOKBACK_DAYS)
+retry_dnp_mask = (hit_series == 'DNP') & date_series.notna() & (date_series >= retry_cutoff) & (date_series <= today_ts)
+blank_ungraded_mask = (hit_series == '') & date_series.notna() & (date_series < today_ts)
+ungraded = df_picks[blank_ungraded_mask | retry_dnp_mask].copy()
 
 if ungraded.empty:
     print("✅ All picks are already graded! Nothing to do.")
     dates_to_grade = []
-
-# Only grade picks from completed dates (not today)
-ungraded = ungraded[ungraded['DATE'] < today_str]
 
 if ungraded.empty:
     print(f"⏳ All ungraded picks are from today ({today_str}) — games haven't finished yet. Run tomorrow.")
@@ -201,6 +219,7 @@ try:
     log_rows = ws_logs.get_all_records()
     df_logs = pd.DataFrame(log_rows)
     if len(df_logs) > 0 and {'PLAYER_NAME', 'GAME_DATE'}.issubset(df_logs.columns):
+        df_logs['GAME_DATE'] = df_logs['GAME_DATE'].map(normalize_pick_date)
         for _, row in df_logs.iterrows():
             key = (row['PLAYER_NAME'], row['GAME_DATE'])
             box_lookup[key] = {
@@ -277,6 +296,7 @@ if grade_dates_missing or not box_lookup:
             pd.to_numeric(df_logs['BLK']) * 3 -
             pd.to_numeric(df_logs['TOV'])
         )
+        df_logs['GAME_DATE'] = df_logs['GAME_DATE'].map(normalize_pick_date)
         for _, row in df_logs.iterrows():
             key = (row['PLAYER_NAME'], row['GAME_DATE'])
             if key in box_lookup:
