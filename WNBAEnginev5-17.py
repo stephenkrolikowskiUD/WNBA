@@ -441,11 +441,14 @@ PLAYER_LOG_BASE_COLS = [
 PLAYER_LOG_NUMERIC_COLS = ['PLAYER_ID', 'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'FG3M', 'FG3A', 'FGA', 'FTA', 'FGM']
 existing_player_logs = load_existing_player_logs('Player_Stats', PLAYER_LOG_BASE_COLS, PLAYER_LOG_NUMERIC_COLS)
 df_log_parts = []
-for season_type in ['Regular Season', 'Playoffs']:
-    try:
-        df_log_parts.append(fetch_league_gamelog_df(WNBA_SEASON, season_type))
-    except Exception as e:
-        print(f"   ❌ {season_type} fetch failed after retries: {e}")
+if os.environ.get('GITHUB_ACTIONS', '').lower() == 'true' and len(existing_player_logs) > 0:
+    print("   ⚠️ GitHub Actions mode — using seeded Player_Stats and skipping full WNBA historical refresh")
+else:
+    for season_type in ['Regular Season', 'Playoffs']:
+        try:
+            df_log_parts.append(fetch_league_gamelog_df(WNBA_SEASON, season_type))
+        except Exception as e:
+            print(f"   ❌ {season_type} fetch failed after retries: {e}")
 if not df_log_parts:
     if len(existing_player_logs) > 0:
         print("   ⚠️ WNBA stats API unavailable — using seeded Player_Stats only")
