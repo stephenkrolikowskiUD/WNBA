@@ -188,8 +188,16 @@ def fetch_scoreboard_games(game_date, max_attempts=3):
         else:
             raw_games = resp.json()
             normalized_games = []
+            eastern = pytz.timezone('US/Eastern')
             for game in raw_games:
-                commence_date = str(game.get('commence_time', ''))[:10]
+                commence_time = game.get('commence_time')
+                commence_date = ""
+                if commence_time:
+                    try:
+                        commence_dt = pd.to_datetime(commence_time, utc=True)
+                        commence_date = commence_dt.tz_convert(eastern).strftime('%Y-%m-%d')
+                    except Exception:
+                        commence_date = str(commence_time)[:10]
                 if commence_date != game_date:
                     continue
                 home = map_wnba_team_abbr(game.get('home_team'))
