@@ -81,6 +81,28 @@ def current_wnba_season(now=None):
     season_year = now.year if now.month >= 5 else now.year - 1
     return str(season_year)
 
+def fetch_wnba_gamelog_df(season, season_type, max_attempts=3):
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = leaguegamelog.LeagueGameLog(
+                player_or_team_abbreviation='P',
+                league_id='10',
+                season=season,
+                season_type_all_star=season_type,
+                timeout=90,
+            )
+            df = resp.get_data_frames()[0]
+            print(f"   ✅ {season_type}: {len(df)} entries")
+            return df
+        except Exception as e:
+            last_err = e
+            print(f"   ⚠️ {season_type} fetch attempt {attempt}/{max_attempts} failed: {e}")
+            if attempt < max_attempts:
+                import time
+                time.sleep(3 * attempt)
+    raise last_err
+
 def normalize_pick_date(val):
     s = str(val or "").strip()
     if not s:
@@ -252,18 +274,11 @@ if grade_dates_missing or not box_lookup:
     df_logs = pd.DataFrame()
     for season_type in ['Regular Season', 'Playoffs']:
         try:
-            log = leaguegamelog.LeagueGameLog(
-                player_or_team_abbreviation='P',
-                league_id='10',
-                season=season,
-                season_type_all_star=season_type
-            )
-            df_tmp = log.get_data_frames()[0]
+            df_tmp = fetch_wnba_gamelog_df(season, season_type)
             if len(df_tmp) > 0:
                 df_logs = pd.concat([df_logs, df_tmp], ignore_index=True)
-                print(f"   ✅ {season_type}: {len(df_tmp)} entries")
         except Exception as e:
-            print(f"   ⚠️ {season_type}: {e}")
+            print(f"   ❌ {season_type} fetch failed after retries: {e}")
     if not df_logs.empty:
         df_logs['PRA'] = pd.to_numeric(df_logs['PTS']) + pd.to_numeric(df_logs['REB']) + pd.to_numeric(df_logs['AST'])
         df_logs['PR'] = pd.to_numeric(df_logs['PTS']) + pd.to_numeric(df_logs['REB'])
