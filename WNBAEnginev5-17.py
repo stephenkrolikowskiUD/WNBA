@@ -449,8 +449,12 @@ PLAYER_LOG_BASE_COLS = [
 PLAYER_LOG_NUMERIC_COLS = ['PLAYER_ID', 'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'FG3M', 'FG3A', 'FGA', 'FTA', 'FGM']
 existing_player_logs = load_existing_player_logs('Player_Stats', PLAYER_LOG_BASE_COLS, PLAYER_LOG_NUMERIC_COLS)
 df_log_parts = []
-if os.environ.get('GITHUB_ACTIONS', '').lower() == 'true' and len(existing_player_logs) > 0:
-    print("   ⚠️ GitHub Actions mode — using seeded Player_Stats and skipping full WNBA historical refresh")
+force_full_refresh = os.environ.get('FORCE_WNBA_FULL_REFRESH', '').strip().lower() in {'1', 'true', 'yes'}
+if len(existing_player_logs) > 0 and not force_full_refresh:
+    if os.environ.get('GITHUB_ACTIONS', '').lower() == 'true':
+        print("   ⚠️ GitHub Actions mode — using seeded Player_Stats and skipping full WNBA historical refresh")
+    else:
+        print("   ⚠️ Using seeded Player_Stats and skipping full WNBA historical refresh (set FORCE_WNBA_FULL_REFRESH=1 to rebuild)")
 else:
     for season_type in ['Regular Season', 'Playoffs']:
         try:
